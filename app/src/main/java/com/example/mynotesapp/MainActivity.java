@@ -4,15 +4,19 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import android.content.Context;
 import android.content.Intent;
+import android.database.ContentObserver;
 import android.database.Cursor;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.view.View;
 import android.widget.ProgressBar;
 
 import com.example.mynotesapp.adapter.NoteAdapter;
-import com.example.mynotesapp.db.NoteHelper;
+import com.example.mynotesapp.db.DatabaseContract;
 import com.example.mynotesapp.entity.Note;
 import com.example.mynotesapp.helper.MappingHelper;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
@@ -27,7 +31,7 @@ public class MainActivity extends AppCompatActivity implements LoadNotesCallback
     private NoteAdapter adapter;
 
     private FloatingActionButton fabAdd;
-    private NoteHelper noteHelper;
+//    private NoteHelper noteHelper;
 
     private static final String EXTRA_STATE = "EXTRA_STATE";
 
@@ -55,15 +59,24 @@ public class MainActivity extends AppCompatActivity implements LoadNotesCallback
             }
         });
 
-        noteHelper = NoteHelper.getInstance(getApplicationContext());
-        noteHelper.open();
+//        noteHelper = NoteHelper.getInstance(getApplicationContext());
+//        noteHelper.open();
+//
+//        // proses ambil data
+//        new LoadNotesAsync(noteHelper, this).execute();
+//
 
-        // proses ambil data
-        new LoadNotesAsync(noteHelper, this).execute();
+        HandlerThread handlerThread = new HandlerThread("DataObserver");
+        handlerThread.start();
+        Handler handler = new Handler(handlerThread.getLooper());
+
+        DataObserver myObserver = new DataObserver(handler, this);
+        getContentResolver().registerContentObserver(DatabaseContract.NoteColumns.CONTENT_URI, true, myObserver);
 
         if (savedInstanceState == null) {
 //            proses ambil data
-            new LoadNotesAsync(noteHelper, this).execute();
+//            new LoadNotesAsync(noteHelper, this).execute();
+            new LoadNotesAsync(this, this).execute();
         } else {
             ArrayList<Note> list = savedInstanceState.getParcelableArrayList(EXTRA_STATE);
             if (list != null) {
@@ -93,56 +106,56 @@ public class MainActivity extends AppCompatActivity implements LoadNotesCallback
         }
     }
 
-    @Override
-    protected  void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-
-        if (data != null) {
-            //akan dipanggil jika request codenya Add
-            if (requestCode == NoteAddUpdateActivity.REQUEST_ADD) {
-                if (resultCode == NoteAddUpdateActivity.RESULT_ADD) {
-                    Note note = data.getParcelableExtra(NoteAddUpdateActivity.EXTRA_NOTE);
-                    adapter.addItem(note);
-                    rvNotes.smoothScrollToPosition(adapter.getItemCount() - 1);
-                    showSnackbarMessage("Satu item berhasil ditambahkan");
-                }
-            }
-
-            else if (requestCode == NoteAddUpdateActivity.REQUEST_UPDATE) {
-                if (resultCode == NoteAddUpdateActivity.RESULT_UPDATE) {
-                    Note note = data.getParcelableExtra(NoteAddUpdateActivity.EXTRA_NOTE);
-                    int position = data.getIntExtra(NoteAddUpdateActivity.EXTRA_POSITION, 0);
-                    adapter.updateItem(position, note);
-                    rvNotes.smoothScrollToPosition(position);
-                    showSnackbarMessage("Satu item berhasil diubah");
-                }
-                else if (resultCode == NoteAddUpdateActivity.RESULT_DELETE) {
-                    int position = data.getIntExtra(NoteAddUpdateActivity.EXTRA_POSITION, 0);
-                    adapter.removeItem(position);
-                    showSnackbarMessage("Satu item berhasil dihapus");
-                }
-            }
-
-        }
-
-    }
+//    @Override
+//    protected  void onActivityResult(int requestCode, int resultCode, Intent data) {
+//        super.onActivityResult(requestCode, resultCode, data);
+//
+//        if (data != null) {
+//            //akan dipanggil jika request codenya Add
+//            if (requestCode == NoteAddUpdateActivity.REQUEST_ADD) {
+//                if (resultCode == NoteAddUpdateActivity.RESULT_ADD) {
+//                    Note note = data.getParcelableExtra(NoteAddUpdateActivity.EXTRA_NOTE);
+//                    adapter.addItem(note);
+//                    rvNotes.smoothScrollToPosition(adapter.getItemCount() - 1);
+//                    showSnackbarMessage("Satu item berhasil ditambahkan");
+//                }
+//            }
+//
+//            else if (requestCode == NoteAddUpdateActivity.REQUEST_UPDATE) {
+//                if (resultCode == NoteAddUpdateActivity.RESULT_UPDATE) {
+//                    Note note = data.getParcelableExtra(NoteAddUpdateActivity.EXTRA_NOTE);
+//                    int position = data.getIntExtra(NoteAddUpdateActivity.EXTRA_POSITION, 0);
+//                    adapter.updateItem(position, note);
+//                    rvNotes.smoothScrollToPosition(position);
+//                    showSnackbarMessage("Satu item berhasil diubah");
+//                }
+//                else if (resultCode == NoteAddUpdateActivity.RESULT_DELETE) {
+//                    int position = data.getIntExtra(NoteAddUpdateActivity.EXTRA_POSITION, 0);
+//                    adapter.removeItem(position);
+//                    showSnackbarMessage("Satu item berhasil dihapus");
+//                }
+//            }
+//
+//        }
+//
+//    }
 
     private void showSnackbarMessage(String pesan) {
         Snackbar.make(rvNotes, pesan, Snackbar.LENGTH_SHORT).show();
     }
 
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        noteHelper.close();
-    }
+//    @Override
+//    protected void onDestroy() {
+//        super.onDestroy();
+//        noteHelper.close();
+//    }
 
     private static class LoadNotesAsync extends AsyncTask<Void, Void, ArrayList<Note>> {
-        private final WeakReference<NoteHelper> weakNoteHelper;
+        private final WeakReference<Context> weakContext;
         private final WeakReference<LoadNotesCallback> weakCallback;
 
-        private LoadNotesAsync(NoteHelper noteHelper, LoadNotesCallback callback) {
-            weakNoteHelper = new WeakReference<>(noteHelper);
+        private LoadNotesAsync(Context context, LoadNotesCallback callback) {
+            weakContext = new WeakReference<>(context);
             weakCallback = new WeakReference<>(callback);
         }
 
@@ -154,7 +167,8 @@ public class MainActivity extends AppCompatActivity implements LoadNotesCallback
 
         @Override
         protected ArrayList<Note> doInBackground(Void... voids) {
-            Cursor dataCursor = weakNoteHelper.get().queryAll();
+            Context context = weakContext.get();
+            Cursor dataCursor = context.getContentResolver().query(DatabaseContract.NoteColumns.CONTENT_URI, null, null, null, null);
             return MappingHelper.mapCursorToArrayList(dataCursor);
         }
 
@@ -172,6 +186,21 @@ public class MainActivity extends AppCompatActivity implements LoadNotesCallback
         outState.putParcelableArrayList(EXTRA_STATE, adapter.getListNotes());
     }
 
+    public static class DataObserver extends ContentObserver {
+        final Context context;
+
+        public DataObserver(Handler handler, Context context) {
+            super(handler);
+            this.context = context;
+        }
+
+        @Override
+        public void onChange(boolean selfChange) {
+            super.onChange(selfChange);
+            new LoadNotesAsync(context, (LoadNotesCallback) context).execute();
+        }
+
+    }
 }
 
 interface LoadNotesCallback {
